@@ -14,7 +14,7 @@ from mididings import engine
 from mididings import event
 
 config(
-    backend='jack',
+    backend='alsa',
     client_name='katana_proxy',
     data_offset=0,
     )
