@@ -14,7 +14,7 @@ from mididings import engine
 from mididings import event
 
 config(
-    backend='alsa',
+    backend='jack',
     client_name='katana_proxy',
     data_offset=0,
     )
@@ -191,14 +191,13 @@ def toggle_amp_bank(ev):
     # emit sysex event to switch to the corresponding amp in the other bank
     return event.SysExEvent(ev.port, select_amp_sysex(patch))
 
-def delay_tap(ev, which):
+def delay_tap(ev, tap_str):
     """
-    Set delay interval by tapping. `which` should be either `delay1` or
-    `delay2`.
+    Set delay interval by tapping. `tap_str` should be the sysex key,
+    `delay1_tap` or `delay2_tap`.
     """
     # now in whole milliseconds
     now = int(time.time() * 1000)
-    tap_str = "tap_{}".format(which)
 
     # always store the new tap time
     last_tap = amp_state[tap_str]
@@ -217,7 +216,7 @@ def delay_tap(ev, which):
     # last 7 digits w a prepended zero is the second hex number
     second_hex = int('0'+interval_bin[4:], 2)
 
-    if which == "delay1":
+    if tap_str == "delay1_tap":
         code = 2     # delay1's opcode is 0x02
     else:
         code = 34    # delay2's opcode is 0x22
@@ -245,7 +244,7 @@ def process_query_result(ev):
     Process SysEx data coming from the Katana.
     """
     hex_bytes = ' '.join('{:02x}'.format(x) for x in ev.sysex)
-    # print("SysEx event rec'd: {}".format(hex_bytes))
+    print("SysEx event rec'd: {}".format(hex_bytes))
 
     # extract the starting address and an unknown number of data bytes
     start_address = hex_bytes[24:35]
@@ -339,8 +338,8 @@ run(
         99: CtrlValueFilter(127) >> Process(next_color, "delay_color"),
 
         100: Process(toggle_effect, "preamp_solo"),
-        102: CtrlValueFilter(127) >> Process(delay_tap, "delay1"),
-        103: CtrlValueFilter(127) >> Process(delay_tap, "delay2"),
+        102: CtrlValueFilter(127) >> Process(delay_tap, "delay1_tap"),
+        103: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
 
         None: Pass(),
         }),
