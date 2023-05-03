@@ -244,7 +244,7 @@ def process_query_result(ev):
     Process SysEx data coming from the Katana.
     """
     hex_bytes = ' '.join('{:02x}'.format(x) for x in ev.sysex)
-    print("SysEx event rec'd: {}".format(hex_bytes))
+    # print("SysEx event rec'd: {}".format(hex_bytes))
 
     # extract the starting address and an unknown number of data bytes
     start_address = hex_bytes[24:35]
