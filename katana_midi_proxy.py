@@ -25,6 +25,8 @@ addresses = {
     "60 00 06 3a": "mod_color",
     "60 00 06 3b": "fx_color",
     "60 00 06 3c": "delay_color",
+    "60 00 06 3d": "reverb_color",
+    "00 00 00 2e": "global_eq_color",
 
     # patch
     "00 01 00 00": "patch_selected",
@@ -54,21 +56,21 @@ sysex_cmds = {
         1: PREFIX + " 12 60 00 06 3b 01 5e f7",
         2: PREFIX + " 12 60 00 06 3b 02 5d f7",
         },
-    "delay_color": {
+    "delay1_color": {
         0: PREFIX + " 12 60 00 06 3c 00 5e f7",
         1: PREFIX + " 12 60 00 06 3c 01 5d f7",
         2: PREFIX + " 12 60 00 06 3c 02 5c f7",
         },
-
-    # Cycling through reverb colors has weird interactions w turning
-    # reverb & delay2 on and off, so I don't support that. Instead I
-    # just have a preset that uses both "DLY + RVB" and support
-    # toggling them on and off independently.
-    # "reverb": {
-    #     "green":  PREFIX + " 12 60 00 06 3d 00 5d f7",
-    #     "red":    PREFIX + " 12 60 00 06 3d 01 5c f7",
-    #     "yellow": PREFIX + " 12 60 00 06 3d 02 5b f7",
-    #     },
+    "reverb_color": {
+        0: PREFIX + " 12 60 00 06 3d 00 5d f7",
+        1: PREFIX + " 12 60 00 06 3d 01 5c f7",
+        2: PREFIX + " 12 60 00 06 3d 02 5b f7",
+        },
+    "global_eq_color": {
+        0: PREFIX + " 12 00 00 00 2e 00 52 f7",
+        1: PREFIX + " 12 00 00 00 2e 01 51 f7",
+        2: PREFIX + " 12 00 00 00 2e 02 50 f7",
+        },
 
     # 127 -> on, 0 -> off
     "reverb_on": {
@@ -99,6 +101,7 @@ amp_state = {
     "fx_color":         0,
     "delay_color":      0,
     "reverb_color":     0,
+    "global_eq_color":  0,
 
     # setting toggles: 0 == off, 1 == on
     "reverb_on":        0,
@@ -335,11 +338,13 @@ run(
         96: CtrlValueFilter(127) >> Process(next_color, "boost_color"),
         97: CtrlValueFilter(127) >> Process(next_color, "mod_color"),
         98: CtrlValueFilter(127) >> Process(next_color, "fx_color"),
-        99: CtrlValueFilter(127) >> Process(next_color, "delay_color"),
+        99: CtrlValueFilter(127) >> Process(delay_tap, "delay1_tap"),
+        100: CtrlValueFilter(127) >> Process(next_color, "reverb_color"),
+        101: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
 
-        100: Process(toggle_effect, "preamp_solo"),
-        102: CtrlValueFilter(127) >> Process(delay_tap, "delay1_tap"),
-        103: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
+        102: Process(toggle_effect, "preamp_solo_on"),
+
+        103: CtrlValueFilter(127) >> Process(next_color, "global_eq_color"),
 
         None: Pass(),
         }),
