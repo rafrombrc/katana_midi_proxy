@@ -167,7 +167,7 @@ def select_amp(ev):
     if amp_state["bank"] > 0:
         # upper bank is 5-8
         patch = patch + 4
-    amp_state["patch"] = patch
+    amp_state["patch_selected"] = patch
     sysex_cmd = select_amp_sysex(patch)
     return event.SysExEvent(ev.port, sysex_cmd)
     return ev
@@ -181,7 +181,7 @@ def toggle_amp_bank(ev):
         return
 
     # get current patch and adjust it to match the new bank
-    patch = amp_state["patch"]
+    patch = amp_state["patch_selected"]
     if ev.value == 0:
         patch = patch - 4
     else:
@@ -189,7 +189,7 @@ def toggle_amp_bank(ev):
 
     # update our state trackng w the new values
     amp_state["bank"] = ev.value
-    amp_state["patch"] = patch
+    amp_state["patch_selected"] = patch
 
     # emit sysex event to switch to the corresponding amp in the other bank
     return event.SysExEvent(ev.port, select_amp_sysex(patch))
@@ -297,27 +297,17 @@ def process_query_result(ev):
                 amp_state["bank"] = 127
 
 def init():
+    """
+    Send SysEx command queries to initialize our state.
+    """
     time.sleep(2) # wait for the engine to initialize
     ports = engine.out_ports()
     port = ports[0]
     cmds = [
-        # Put into verbose mode
-        PREFIX + " 12 7f 00 00 01 01 7f f7",
-
-        # Fetch patch number
-        PREFIX + " 11 00 01 00 00 00 00 00 02 7d f7",
-
-        # Fetch effect colors
-        PREFIX + " 11 60 00 06 39 00 00 00 04 5d f7",
-        #PREFIX + " 11 10 03 00 00 00 00 00 10 5D f7",
-        # PREFIX + " 11 10 04 00 00 00 00 00 10 5C f7",
-        # PREFIX + " 11 10 05 00 00 00 00 00 10 5B f7",
-        # PREFIX + " 11 10 06 00 00 00 00 00 10 5A f7",
-        # PREFIX + " 11 10 07 00 00 00 00 00 10 59 f7",
-        # PREFIX + " 11 10 08 00 00 00 00 00 10 58 f7",
-        # PREFIX + " 11 60 00 00 00 00 00 0f 48 49 f7",
-        # PREFIX + " 11 00 00 00 00 00 02 00 1D 61 f7",
-        # PREFIX + " 11 00 01 00 00 00 00 00 02 FE f7",
+        PREFIX + " 12 7f 00 00 01 01 7f f7",           # put into verbose mode
+        PREFIX + " 11 00 01 00 00 00 00 00 02 7d f7",  # get patch number
+        PREFIX + " 11 60 00 06 39 00 00 00 05 5c f7",  # get effect colors
+        PREFIX + " 11 00 00 00 2e 00 00 00 01 51 f7",  # get global eq color
         ]
     for cmd in cmds:
         engine.output_event(
