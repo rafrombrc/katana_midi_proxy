@@ -13,6 +13,8 @@ from mididings import *
 from mididings import engine
 from mididings import event
 
+DEBUG = False
+
 config(
     backend='alsa',
     client_name='katana_proxy',
@@ -116,11 +118,17 @@ amp_state = {
     "delay2_tap":       0,
     }
 
+def debug_print(output):
+    if DEBUG:
+        print(output)
+
 def next_color(ev, attr_name):
     """
     Switches the specified effect to the next color in the cycle.
     """
     # determine the next color and set for next time
+    # debug_print("ENTER next_color")
+    # debug_print("ev: {}; attr_name: {}".format(ev, attr_name))
     color = amp_state[attr_name]
     if color >= 2:
         color = 0
@@ -130,12 +138,15 @@ def next_color(ev, attr_name):
 
     # send the command
     sysex_cmd = sysex_cmds[attr_name][color]
+    # debug_print("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
     return event.SysExEvent(ev.port, sysex_cmd)
 
 def toggle_effect(ev, effect):
     """
     Toggles the specified trait on (value 127) or off (value 0).
     """
+    # debug_print("ENTER toggle_effect")
+    # debug_print("ev: {}; effect: {}".format(ev, effect))
     key = ev.value
     # 0-63 == off, 64-127 == on
     if key <= 63:
@@ -143,6 +154,7 @@ def toggle_effect(ev, effect):
     else:
         key = 1
     sysex_cmd = sysex_cmds[effect][key]
+    # debug_print("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
     return event.SysExEvent(ev.port, sysex_cmd)
 
 def select_amp_sysex(patch):
@@ -160,6 +172,8 @@ def select_amp(ev):
     We accept program change (PC) values 1-4. If the `bank` value is 0 we use
     the first bank, if >0 we use the second one.
     """
+    # debug_print("ENTER select_amp")
+    # debug_print("ev: {}".format(ev))
     patch = ev.program
     if not 1 <= patch <= 4:
         # expect PC 1-4
@@ -169,13 +183,15 @@ def select_amp(ev):
         patch = patch + 4
     amp_state["patch_selected"] = patch
     sysex_cmd = select_amp_sysex(patch)
+    # debug_print("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
     return event.SysExEvent(ev.port, sysex_cmd)
-    return ev
 
 def toggle_amp_bank(ev):
     """
     Toggles btn the two banks of four amps.
     """
+    # debug_print("ENTER toggle_amp_bank")
+    # debug_print("ev: {}; amp_state['bank']: {}".format(ev, amp_state["bank"]))
     if ev.value == amp_state["bank"]:
         # we're already in the selected bank, do nothing
         return
@@ -192,7 +208,9 @@ def toggle_amp_bank(ev):
     amp_state["patch_selected"] = patch
 
     # emit sysex event to switch to the corresponding amp in the other bank
-    return event.SysExEvent(ev.port, select_amp_sysex(patch))
+    sysex_cmd = select_amp_sysex(patch)
+    # debug_print("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
+    return event.SysExEvent(ev.port, sysex_cmd)
 
 def delay_tap(ev, tap_str):
     """
@@ -247,7 +265,7 @@ def process_query_result(ev):
     Process SysEx data coming from the Katana.
     """
     hex_bytes = ' '.join('{:02x}'.format(x) for x in ev.sysex)
-    # print("SysEx event rec'd: {}".format(hex_bytes))
+    # debug_print("SysEx event rec'd: {}".format(hex_bytes))
 
     # extract the starting address and an unknown number of data bytes
     start_address = hex_bytes[24:35]
@@ -285,10 +303,10 @@ def process_query_result(ev):
 
         # update amp state
         if setting_name.endswith("color") or setting_name.endswith("on"):
-            # print("Match: " + setting_name)
+            # debug_print("Match: " + setting_name)
             amp_state[setting_name] = int(data_byte)
         elif setting_name == "patch_selected":
-            # print("Match: patch_selected")
+            # debug_print("Match: patch_selected")
             patch = int(data_bytes[-1], 16)
             amp_state["patch_selected"] = patch
             if patch <= 4:
@@ -319,28 +337,29 @@ start_new_thread(init, ())
 
 run(
     # CC messages for various toggles, option cycling, and delay taps
-    [Filter(CTRL) >> CtrlSplit({
-        20: Process(toggle_effect, "reverb_on"),
-        21: Process(toggle_effect, "delay2_on"),
-        22: Process(toggle_effect, "pedal_fx_on"),
-        23: Process(toggle_amp_bank),
+    [
+        Filter(CTRL) >> CtrlSplit({
+            20: Process(toggle_effect, "reverb_on"),
+            21: Process(toggle_effect, "delay2_on"),
+            22: Process(toggle_effect, "pedal_fx_on"),
+            23: Process(toggle_amp_bank),
 
-        96: CtrlValueFilter(127) >> Process(next_color, "boost_color"),
-        97: CtrlValueFilter(127) >> Process(next_color, "mod_color"),
-        98: CtrlValueFilter(127) >> Process(next_color, "fx_color"),
-        99: CtrlValueFilter(127) >> Process(delay_tap, "delay1_tap"),
-        100: CtrlValueFilter(127) >> Process(next_color, "reverb_color"),
-        101: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
+            96: CtrlValueFilter(127) >> Process(next_color, "boost_color"),
+            97: CtrlValueFilter(127) >> Process(next_color, "mod_color"),
+            98: CtrlValueFilter(127) >> Process(next_color, "fx_color"),
+            99: CtrlValueFilter(127) >> Process(delay_tap, "delay1_tap"),
+            100: CtrlValueFilter(127) >> Process(next_color, "reverb_color"),
+            101: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
 
-        102: Process(toggle_effect, "preamp_solo_on"),
+            102: Process(toggle_effect, "preamp_solo_on"),
 
-        103: CtrlValueFilter(127) >> Process(next_color, "global_eq_color"),
+            103: CtrlValueFilter(127) >> Process(next_color, "global_eq_color"),
 
-        None: Pass(),
-        }),
-    ProgramFilter([1, 2, 3, 4]) >> Process(select_amp),
-    # SysEx messages are query results back from the amp
-    SysExFilter(manufacturer=0x41) >> Call(process_query_result),
-    SysExFilter("\xf0\x7e") >> Call(process_query_result),
-     ]
+            None: Pass(),
+            }),
+        ProgramFilter([1, 2, 3, 4]) >> Process(select_amp),
+        # SysEx messages are query results back from the amp
+        SysExFilter(manufacturer=0x41) >> Call(process_query_result),
+        SysExFilter("\xf0\x7e") >> Call(process_query_result),
+    ]
     )
