@@ -62,5 +62,6 @@ RtMidiOut Client -x-> *
   # similarly named.
 
 ActitioN --> katana_proxy
-KATANA:0 <---> katana_proxy
-
+KATANA:0 --> katana_proxy
+katana_proxy:out_to_katana --> KATANA:0
+katana_proxy:out_to_controller --> ActitioN Programmable
