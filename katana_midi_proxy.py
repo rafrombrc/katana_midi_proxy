@@ -1,5 +1,5 @@
 """
-Mididings script translating from a couple of Actition MIDI controller
+Mididings script translating from a couple of ActitioN MIDI controller
 footpedals to control of a Katana MkII Head amplifier.
 
 MIDI out from the controllers should be routed into `katana_proxy` input, and
