@@ -1,0 +1,3 @@
+SUBSYSTEM=="sound", ATTRS{idVendor}=="0582", ATTRS{idProduct}=="01d8", ACTION=="add", RUN+="/usr/bin/systemctl start katana-proxy.service"
+SUBSYSTEM=="sound", ATTRS{idVendor}=="0582", ATTRS{idProduct}=="01d8", ACTION=="remove", RUN+="/usr/bin/systemctl stop katana-proxy.service"
+
