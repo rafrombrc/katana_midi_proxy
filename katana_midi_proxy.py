@@ -6,6 +6,7 @@ MIDI out from the controllers should be routed into `katana_proxy` input, and
 `katana_proxy` outputs routed to the Katana and the ActitioN programmable
 controller.
 """
+import inspect
 import logging
 import time
 
@@ -161,6 +162,10 @@ def get_checksum(values):
 		accum = (accum + val) & 127
 	return (128-accum) & 127
 
+def cmd_sent_debug(port, sysex_cmd):
+    caller_name = inspect.stack()[1][3]
+    logging.debug("fn name: {}; ev.port: {}; {}".format(caller_name, port, sysex_cmd))
+
 def format_sysex_cmd(cmd_hex):
 	hex_parts = cmd_hex.split()
 	send_or_rcv, cmd = hex_parts[0], hex_parts[1:]
@@ -191,7 +196,7 @@ def next_color(ev, attr_name):
 
 	# send the command
 	sysex_cmd = sysex_cmds[attr_name][color]
-	logging.debug("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
+	cmd_sent_debug(ev.port, sysex_cmd)
 	return event.SysExEvent(ev.port, sysex_cmd)
 
 def toggle_effect(ev, effect):
@@ -207,7 +212,7 @@ def toggle_effect(ev, effect):
 	else:
 		key = 1
 	sysex_cmd = sysex_cmds[effect][key]
-	logging.debug("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
+	cmd_sent_debug(ev.port, sysex_cmd)
 	return event.SysExEvent(ev.port, sysex_cmd)
 
 def select_amp_sysex(patch):
@@ -234,7 +239,7 @@ def select_amp(ev):
 		patch = patch + 4
 	amp_state["patch_selected"] = patch
 	sysex_cmd = select_amp_sysex(patch)
-	logging.debug("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
+	cmd_sent_debug(ev.port, sysex_cmd)
 	return event.SysExEvent(ev.port, sysex_cmd)
 
 def toggle_amp_bank(ev):
@@ -260,7 +265,7 @@ def toggle_amp_bank(ev):
 
 	# emit sysex event to switch to the corresponding amp in the other bank
 	sysex_cmd = select_amp_sysex(patch)
-	logging.debug("ev.port: {}; sysex_cmd: {}".format(ev.port, sysex_cmd))
+	cmd_sent_debug(ev.port, sysex_cmd)
 	return event.SysExEvent(ev.port, sysex_cmd)
 
 def delay_tap(ev, tap_str):
@@ -306,7 +311,8 @@ def delay_tap(ev, tap_str):
 
 def process_query_result(ev):
 	"""
-	Process SysEx data coming from the Katana.
+	Parse SysEx data coming from the Katana to get amp state and send
+	MIDI commands out to the controller to update the LEDs if needed.
 	"""
 	hex_bytes = ' '.join('{:02x}'.format(x) for x in ev.sysex)
 	logging.debug("SysEx event rec'd: {}".format(hex_bytes))
