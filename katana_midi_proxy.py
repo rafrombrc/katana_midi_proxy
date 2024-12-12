@@ -109,7 +109,7 @@ sysex_cmds = {
 	}
 
 query_cmds = [
-	"12 7f 00 00 01 01",		   # put into verbose mode
+	"12 7f 00 00 01 01",           # put into verbose mode
 	"11 00 01 00 00 00 00 00 02",  # get patch number
 	"11 60 00 00 10 00 00 00 48",  # get boost data
 	"11 60 00 01 00 00 00 01 00",  # get mod data
@@ -348,6 +348,7 @@ def process_query_result(ev):
 		# see if this byte matches a known setting address
 		setting_name = addresses.get(address)
 		if not setting_name:
+			logging.debug("setting name: {}".format(setting_name))
 			# no match, ignore it
 			continue
 
