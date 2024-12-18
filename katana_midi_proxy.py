@@ -16,7 +16,7 @@ from mididings import *
 from mididings import engine
 from mididings import event
 
-# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 # logging.basicConfig(level=logging.DEBUG)
 
 config(
@@ -86,7 +86,23 @@ sysex_cmds = {
 		2: "12 00 00 00 2e 02",
 		},
 
-	# 127 -> on, 0 -> off
+	# 1 -> on, 0 -> off
+	"boost_on": {
+		1:        "12 60 00 00 10 01",
+		0:        "12 60 00 00 10 00",
+		},
+	"mod_on": {
+		1:        "12 60 00 01 00 01",
+		0:        "12 60 00 01 00 00",
+		},
+	"fx_on": {
+		1:        "12 60 00 03 00 01",
+		0:        "12 60 00 03 00 00",
+		},
+	"delay_on": {
+		1:        "12 60 00 05 00 01",
+		0:        "12 60 00 05 00 00",
+		},
 	"reverb_on": {
 		1:		  "12 60 00 05 40 01",
 		0:		  "12 60 00 05 40 00",
@@ -99,7 +115,7 @@ sysex_cmds = {
 		1:		  "12 60 00 05 50 01",
 		0:		  "12 60 00 05 50 00",
 		},
-	"preamp_solo_on": {
+	"solo_on": {
 		1:		  "12 60 00 06 14 01",
 		0:		  "12 60 00 06 14 00",
 		},
@@ -131,30 +147,63 @@ amp_state = {
 	"global_eq_color":	0,
 
 	# setting toggles: 0 == off, 1 == on
+	"boost_on":         0,
+	"mod_on":           0,
+	"fx_on":            0,
+	"delay_on":         0,
 	"reverb_on":		0,
 	"delay2_on":		0,
 	"pedal_fx_on":		0,
-	"preamp_solo_on":	0,
+	"solo_on":	        0,
 
 	"bank":				0,		 # toggles btn 0 and 127
 	"patch_selected":	1,		 # from 1-8
 
 	"delay1_tap":		0,		 # becomes a timestamp (ms since epoch)
 	"delay2_tap":		0,
-	}
+}
 
-LED_map = {
-	# map from effect names to CC commands that will set the corresponding LED
-	"boost_on":		   110,
-	"mod_on":		   111,
-	"fx_on":		   112,
-	"delay_on":		   113,
-	"reverb_on":	   114,
-	"delay2_on":	   115,
-	"pedal_fx_on":	   116,
-	"patch_selected":  118,
-	"bank":			   117,
+ctrl_state = {
+	# controller state
+	"bank":             1,
+	"amp_bank":         0,
+}
+
+ctrl_state_keys = {
+	# decoder for the notes that tell us the controller state
+	1: "boost_on",
+	2: "mod_on",
+	3: "fx_on",
+	4: "delay_on",
+	5: "reverb_on",
+	6: "delay2_on",
+	20: "preset",
+	21: "preset_toggle",
+}
+
+# Each bank's map from effect names to the PC cmds that will push the
+# corresponding button
+LED_maps = {
+	1: {
+		"boost_on":		   1,
+		"mod_on":		   2,
+		"fx_on":		   3,
+		"delay_on":		   4,
+		"reverb_on":	   5,
+		"patch_selected":  6,
+		"amp_bank":        10,
+	},
+	2: {
+		"boost_on":		   1,
+		"mod_on":		   2,
+		"fx_on":		   3,
+		"delay_on":		   4,
+		"reverb_on":	   5,
+		"delay2_on":       6,
+		"pedal_fx_on":     7,
 	}
+}
+
 
 def get_checksum(values):
 	accum = 0
@@ -179,6 +228,23 @@ def output_event(event, sleep=.002):
 	engine.output_event(event)
 	if sleep > 0:
 		time.sleep(sleep)
+
+def update_ctrl_bank(ev):
+	"""
+	Query the amp when we change banks on the controller so we can keep
+    the LEDs in sync.
+	"""
+	ctrl_state["bank"] = ev.value
+	send_query_cmds(ev.port)
+
+def get_pedal_PC(setting_name):
+	LED_map = LED_maps.get(ctrl_state["bank"], None)
+	if LED_map is not None:
+		return LED_map.get(setting_name, None)
+	return None
+
+def update_ctrl_bank_toggle(ev):
+	ctrl_state["amp_bank"] = ev.value
 
 def next_color(ev, attr_name):
 	"""
@@ -266,6 +332,7 @@ def toggle_amp_bank(ev):
 	# emit sysex event to switch to the corresponding amp in the other bank
 	sysex_cmd = select_amp_sysex(patch)
 	cmd_sent_debug(ev.port, sysex_cmd)
+	send_query_cmds(ev.port)
 	return event.SysExEvent(ev.port, sysex_cmd)
 
 def delay_tap(ev, tap_str):
@@ -355,53 +422,57 @@ def process_query_result(ev):
 		ctrl_port = engine.out_ports()[1]
 		# update our amp state data and set LEDs on the controller
 		if setting_name.endswith("color"):
+			# controller doesn't support colors so we just update state
 			logging.info("Match: " + setting_name)
 			amp_state[setting_name] = int(data_byte)
 		elif setting_name.endswith("on"):
 			logging.info("Match: " + setting_name)
+			if amp_state[setting_name] == int(data_byte):
+				continue
 			amp_state[setting_name] = int(data_byte)
-			if (LED_CC := LED_map.get(setting_name)) is not None:
-				out_val = 0 if int(data_byte) == 0 else 127
-				logging.info("Sending {} to controller CC {} - {}".format(
-					out_val, LED_CC, setting_name,
+			if (pedal_PC := get_pedal_PC(setting_name)) is not None:
+				logging.info("Sending PC {} to controller - {}".format(
+					pedal_PC, setting_name,
 					))
-				output_event(
-					event.CtrlEvent(
-						ctrl_port, 16, LED_CC, out_val
-						)
-					)
+				output_event(event.ProgramEvent(ctrl_port, 16, pedal_PC))
 		elif setting_name == "patch_selected":
-			logging.info("Match: patch_selected")
-			b4_patch = amp_state["patch_selected"]
+			continue
+			logging.info("Match: " + setting_name)
+			b4_patch = amp_state[setting_name]
 			patch = int(data_bytes[-1], 16)
 			logging.info("patch: {}".format(patch))
-			LED_start = LED_map["patch_selected"]
-			amp_state["patch_selected"] = patch
-			if b4_patch > 4:
-				b4_patch = b4_patch - 4
-			LED_CC = LED_start + b4_patch - 1
-			logging.info("Sending {} to controller CC {} - {} previous: {}".format(
-				0, LED_CC, setting_name, b4_patch,
-				))
-			output_event(event.CtrlEvent(ctrl_port, 16, LED_CC, 0))
-			if patch <= 4:
-				amp_state["bank"] = 0
-				LED_CC = LED_start + patch - 1
-			else:
-				amp_state["bank"] = 127
-				LED_CC = LED_start + patch - 5
-			logging.info("Sending {} to controller CC {} - {}: {}".format(
-				127, LED_CC, setting_name, patch,
-				))
-			output_event(event.CtrlEvent(ctrl_port, 16, LED_CC, 127))
-			logging.info("Sending {} to controller CC {} - {}: bank {}".format(
-				127, LED_map["bank"], setting_name, amp_state["bank"]
-				))
-			output_event(
-				event.CtrlEvent(
-					ctrl_port, 16, LED_map["bank"], amp_state["bank"]
-					)
-				)
+			if (pedal_PC := get_pedal_PC(setting_name)) is not None:
+				amp_state[setting_name] = patch
+				if b4_patch > 4:
+					b4_patch = b4_patch - 4
+				pedal_PC = pedal_PC + b4_patch - 1
+				logging.info("Sending PC {} to controller - {}".format(
+					pedal_PC, setting_name,
+					))
+				output_event(event.CtrlEvent(ctrl_port, 16, pedal_PC))
+				# we're in the "patch_selected" bank so "amp_bank" is there too
+				toggle_amp_bank = False
+				if patch <= 4:
+					amp_state["bank"] = 0
+					if ctrl_state["amp_bank"] == 1:
+						ctrl_state["amp_bank"] = 0
+						toggle_amp_bank = True
+				else:
+					amp_state["bank"] = 127
+					if ctrl_state["amp_bank"] == 0:
+						ctrl_state["amp_bank"] = 1
+						toggle_amp_bank = True
+				if toggle_amp_bank:
+					pedal_PC = get_pedal_PC("amp_bank")
+					logging.info("Sending PC {} to controller - {}".format(
+						pedal_PC, setting_name,
+					))
+					output_event(event.CtrlEvent(ctrl_port, 16, pedal_PC))
+
+def send_query_cmds(port):
+	for query_cmd in query_cmds:
+		cmd = format_sysex_cmd(query_cmd)
+		output_event(event.SysExEvent(port, cmd), sleep=0)
 
 def init():
 	"""
@@ -414,10 +485,7 @@ def init():
 
 	time.sleep(1) # wait for the engine to initialize
 	ports = engine.out_ports()
-	port = ports[0]
-	for query_cmd in query_cmds:
-		cmd = format_sysex_cmd(query_cmd)
-		output_event(event.SysExEvent(port, cmd), sleep=0)
+	send_query_cmds(ports[0])
 
 start_new_thread(init, ())
 
@@ -425,6 +493,10 @@ run(
 	# CC messages for various toggles, option cycling, and delay taps
 	[
 		Filter(CTRL) >> CtrlSplit({
+			16: Process(toggle_effect, "boost_on"),
+			17: Process(toggle_effect, "mod_on"),
+			18: Process(toggle_effect, "fx_on"),
+			19: Process(toggle_effect, "delay_on"),
 			20: Process(toggle_effect, "reverb_on"),
 			21: Process(toggle_effect, "delay2_on"),
 			22: Process(toggle_effect, "pedal_fx_on"),
@@ -437,10 +509,12 @@ run(
 			100: CtrlValueFilter(127) >> Process(next_color, "reverb_color"),
 			101: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
 
-			102: Process(toggle_effect, "preamp_solo_on"),
+			102: Process(toggle_effect, "solo_on"),
 
 			103: CtrlValueFilter(127) >> Process(next_color, "global_eq_color"),
 
+			125: Process(update_ctrl_bank_toggle),
+			126: Process(update_ctrl_bank),
 			None: Pass(),
 			}),
 		ProgramFilter([2, 3, 4, 5]) >> Process(select_amp),
