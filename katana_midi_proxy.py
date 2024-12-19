@@ -29,6 +29,9 @@ config(
 		],
 	)
 
+effect_names = ["boost", "mod", "fx", "delay", "reverb", "delay2", "global_eq"]
+effect_wo_color_names = ["pedal_fx", "solo"]
+
 addresses = {
 	# effect colors
 	"60 00 06 39": "boost_color",
@@ -119,9 +122,11 @@ sysex_cmds = {
 		1:		  "12 60 00 06 14 01",
 		0:		  "12 60 00 06 14 00",
 		},
+	}
+
+sysex_cmds_subs = {
 	"select_amp": "12 00 01 00 00 00 {}",
-	"delay1_tap": "12 60 00 05 02 {} {}",
-	"delay2_tap": "12 60 00 05 22 {} {}",
+	"delay_tap":  "12 60 00 05 {} {} {}",
 	}
 
 query_cmds = [
@@ -137,40 +142,8 @@ query_cmds = [
 	"11 00 00 00 2e 00 00 00 01",  # get global eq color
 	]
 
-amp_state = {
-	# effect colors: 0 == green, 1 == red, 2 == yellow
-	"boost_color":		0,
-	"mod_color":		0,
-	"fx_color":			0,
-	"delay_color":		0,
-	"reverb_color":		0,
-	"global_eq_color":	0,
-
-	# setting toggles: 0 == off, 1 == on
-	"boost_on":         0,
-	"mod_on":           0,
-	"fx_on":            0,
-	"delay_on":         0,
-	"reverb_on":		0,
-	"delay2_on":		0,
-	"pedal_fx_on":		0,
-	"solo_on":	        0,
-
-	"bank":				0,		 # toggles btn 0 and 127
-	"patch_selected":	1,		 # from 1-8
-
-	"delay1_tap":		0,		 # becomes a timestamp (ms since epoch)
-	"delay2_tap":		0,
-}
-
-ctrl_state = {
-	# controller state
-	"bank":             1,
-	"amp_bank":         0,
-}
-
+# map of notes the controller sends to what it tells us about its state
 ctrl_state_keys = {
-	# decoder for the notes that tell us the controller state
 	1: "boost_on",
 	2: "mod_on",
 	3: "fx_on",
@@ -183,25 +156,26 @@ ctrl_state_keys = {
 
 # Each bank's map from effect names to the PC cmds that will push the
 # corresponding button
-LED_maps = {
+ctrl_LED_maps = {
 	1: {
-		"boost_on":		   1,
-		"mod_on":		   2,
-		"fx_on":		   3,
-		"delay_on":		   4,
-		"reverb_on":	   5,
-		"patch_selected":  6,
+		"boost":		   1,
+		"mod":		       2,
+		"fx":    		   3,
+		"delay":		   4,
+		"reverb":   	   5,
+		"presets":         6, # presets start here
 		"amp_bank":        10,
 	},
 	2: {
-		"boost_on":		   1,
-		"mod_on":		   2,
-		"fx_on":		   3,
-		"delay_on":		   4,
-		"reverb_on":	   5,
-		"delay2_on":       6,
-		"pedal_fx_on":     7,
-	}
+		"boost":		   1,
+		"mod":	    	   2,
+		"fx":		       3,
+		"delay":		   4,
+		"reverb":	       5,
+		"delay2":          6,
+		"pedal_fx":        7,
+	},
+	3: {},
 }
 
 
@@ -211,9 +185,6 @@ def get_checksum(values):
 		accum = (accum + val) & 127
 	return (128-accum) & 127
 
-def cmd_sent_debug(port, sysex_cmd):
-    caller_name = inspect.stack()[1][3]
-    logging.debug("fn name: {}; ev.port: {}; {}".format(caller_name, port, sysex_cmd))
 
 def format_sysex_cmd(cmd_hex):
 	hex_parts = cmd_hex.split()
@@ -221,258 +192,316 @@ def format_sysex_cmd(cmd_hex):
 	cmd_ints = [int(v, 16) for v in cmd]
 	checksum = '{:02x}'.format(get_checksum(cmd_ints))
 	formatted = " ".join((PREFIX, send_or_rcv, " ".join(cmd), checksum, 'f7'))
-	logging.debug("formatted sysex_cmd: {}".format(formatted))
+	logging.debug("formatted sysex_cmd: {}", formatted)
 	return formatted
+
 
 def output_event(event, sleep=.002):
 	engine.output_event(event)
 	if sleep > 0:
 		time.sleep(sleep)
 
-def update_ctrl_bank(ev):
-	"""
-	Query the amp when we change banks on the controller so we can keep
-    the LEDs in sync.
-	"""
-	ctrl_state["bank"] = ev.value
-	send_query_cmds(ev.port)
-
-def get_pedal_PC(setting_name):
-	LED_map = LED_maps.get(ctrl_state["bank"], None)
-	if LED_map is not None:
-		return LED_map.get(setting_name, None)
-	return None
-
-def update_ctrl_bank_toggle(ev):
-	ctrl_state["amp_bank"] = ev.value
-
-def next_color(ev, attr_name):
-	"""
-	Switches the specified effect to the next color in the cycle.
-	"""
-	# determine the next color and set for next time
-	logging.info("ENTER next_color")
-	logging.info("ev: {}; attr_name: {}".format(ev, attr_name))
-	color = amp_state[attr_name]
-	if color >= 2:
-		color = 0
-	else:
-		color = color + 1
-	amp_state[attr_name] = color
-
-	# send the command
-	sysex_cmd = sysex_cmds[attr_name][color]
-	cmd_sent_debug(ev.port, sysex_cmd)
-	return event.SysExEvent(ev.port, sysex_cmd)
-
-def toggle_effect(ev, effect):
-	"""
-	Toggles the specified trait on (value 127) or off (value 0).
-	"""
-	logging.info("ENTER toggle_effect")
-	logging.info("ev: {}; effect: {}".format(ev, effect))
-	key = ev.value
-	# 0-63 == off, 64-127 == on
-	if key <= 63:
-		key = 0
-	else:
-		key = 1
-	sysex_cmd = sysex_cmds[effect][key]
-	cmd_sent_debug(ev.port, sysex_cmd)
-	return event.SysExEvent(ev.port, sysex_cmd)
-
-def select_amp_sysex(patch):
-	"""
-	Returns the sysex cmd for selecting the specified patch.
-	"""
-	return format_sysex_cmd(
-		sysex_cmds["select_amp"].format('{:02x}'.format(patch)))
-
-def select_amp(ev):
-	"""
-	We accept program change (PC) values 2-5. (The controller sends 1-4, which
-	the Katana recognizes, but since `data_offset` is 1 so we can access the
-	controller's listener channel 16 mididings sees them as 2-5.) If the `bank`
-	value is 0 we use the first bank, if >0 we use the second one.
-	"""
-	logging.info("ENTER select_amp")
-	logging.info("ev: {}".format(ev))
-	patch = ev.program - 1
-	if not 1 <= patch <= 4:
-		return
-	if amp_state["bank"] > 0:
-		# upper bank is 5-8
-		patch = patch + 4
-	amp_state["patch_selected"] = patch
-	sysex_cmd = select_amp_sysex(patch)
-	cmd_sent_debug(ev.port, sysex_cmd)
-	return event.SysExEvent(ev.port, sysex_cmd)
-
-def toggle_amp_bank(ev):
-	"""
-	Toggles btn the two banks of four amps.
-	"""
-	logging.info("ENTER toggle_amp_bank")
-	logging.info("ev: {}; amp_state['bank']: {}".format(ev, amp_state["bank"]))
-	if ev.value == amp_state["bank"]:
-		# we're already in the selected bank, do nothing
-		return
-
-	# get current patch and adjust it to match the new bank
-	patch = amp_state["patch_selected"]
-	if ev.value == 0:
-		patch = patch - 4
-	else:
-		patch = patch + 4
-
-	# update our state trackng w the new values
-	amp_state["bank"] = ev.value
-	amp_state["patch_selected"] = patch
-
-	# emit sysex event to switch to the corresponding amp in the other bank
-	sysex_cmd = select_amp_sysex(patch)
-	cmd_sent_debug(ev.port, sysex_cmd)
-	send_query_cmds(ev.port)
-	return event.SysExEvent(ev.port, sysex_cmd)
-
-def delay_tap(ev, tap_str):
-	"""
-	Set delay interval by tapping. `tap_str` should be the sysex key,
-	`delay1_tap` or `delay2_tap`.
-	"""
-	# now in whole milliseconds
-	now = int(time.time() * 1000)
-
-	# always store the new tap time
-	last_tap = amp_state[tap_str]
-	amp_state[tap_str] = now
-	interval = now - last_tap
-
-	# if first tap or > 2s since last tap, do nothing else
-	if interval > 2000:
-		return
-
-	# get 11 digit binary representation
-	interval_bin = bin(interval)[2:].zfill(11)
-
-	# first four digits are the first hex number
-	first_hex = int(interval_bin[:4], 2)
-	# last 7 digits w a prepended zero is the second hex number
-	second_hex = int('0'+interval_bin[4:], 2)
-
-	if tap_str == "delay1_tap":
-		code = 2	 # delay1's opcode is 0x02
-	else:
-		code = 34	 # delay2's opcode is 0x22
-
-	checksum = get_checksum((96, 0, 5, code, first_hex, second_hex))
-
-	# turn them into 2 digit strings
-	first_hex = '0' + hex(first_hex)[2:] # always a single digit
-	second_hex = hex(second_hex)[2:].zfill(2) # might be one or two digits
-
-	sysex_cmd = format_sysex_cmd(
-		sysex_cmds[tap_str].format(first_hex, second_hex)
-		)
-	return event.SysExEvent(ev.port, sysex_cmd)
-
-def process_query_result(ev):
-	"""
-	Parse SysEx data coming from the Katana to get amp state and send
-	MIDI commands out to the controller to update the LEDs if needed.
-	"""
-	hex_bytes = ' '.join('{:02x}'.format(x) for x in ev.sysex)
-	logging.debug("SysEx event rec'd: {}".format(hex_bytes))
-
-	# extract the starting address and an unknown number of data bytes
-	start_address = hex_bytes[24:35]
-	data_bytes = hex_bytes[36:-6].split()
-
-	address = None
-	address_int = None
-	last_addr_byte = None
-
-	# iterate through the bytes and check each address
-	for data_byte in data_bytes:
-		if not address:
-			# initialize
-			address = start_address
-			last_addr_byte = address[-2:]
-		else:
-			# increment hex str representation.
-			if last_addr_byte != "7f":
-				# increment the last byte by 1
-				last_addr_byte = format(int(last_addr_byte,16)+1, '02x')
-				address = "{}{}".format(address[:-2], last_addr_byte)
-			else:
-				# rolls over, need to increment the upper address byte
-				last_addr_byte = "00"
-				upper_addr_byte = address[-5:-3]
-				upper_addr_byte = format(int(upper_addr_byte,16)+1, '02x')
-				address = "{}{} {}".format(
-					address[:-5], upper_addr_byte, last_addr_byte)
-
-		# see if this byte matches a known setting address
-		setting_name = addresses.get(address)
-		if not setting_name:
-			logging.debug("setting name: {}".format(setting_name))
-			# no match, ignore it
-			continue
-
-		ctrl_port = engine.out_ports()[1]
-		# update our amp state data and set LEDs on the controller
-		if setting_name.endswith("color"):
-			# controller doesn't support colors so we just update state
-			logging.info("Match: " + setting_name)
-			amp_state[setting_name] = int(data_byte)
-		elif setting_name.endswith("on"):
-			logging.info("Match: " + setting_name)
-			if amp_state[setting_name] == int(data_byte):
-				continue
-			amp_state[setting_name] = int(data_byte)
-			if (pedal_PC := get_pedal_PC(setting_name)) is not None:
-				logging.info("Sending PC {} to controller - {}".format(
-					pedal_PC, setting_name,
-					))
-				output_event(event.ProgramEvent(ctrl_port, 16, pedal_PC))
-		elif setting_name == "patch_selected":
-			continue
-			logging.info("Match: " + setting_name)
-			b4_patch = amp_state[setting_name]
-			patch = int(data_bytes[-1], 16)
-			logging.info("patch: {}".format(patch))
-			if (pedal_PC := get_pedal_PC(setting_name)) is not None:
-				amp_state[setting_name] = patch
-				if b4_patch > 4:
-					b4_patch = b4_patch - 4
-				pedal_PC = pedal_PC + b4_patch - 1
-				logging.info("Sending PC {} to controller - {}".format(
-					pedal_PC, setting_name,
-					))
-				output_event(event.CtrlEvent(ctrl_port, 16, pedal_PC))
-				# we're in the "patch_selected" bank so "amp_bank" is there too
-				toggle_amp_bank = False
-				if patch <= 4:
-					amp_state["bank"] = 0
-					if ctrl_state["amp_bank"] == 1:
-						ctrl_state["amp_bank"] = 0
-						toggle_amp_bank = True
-				else:
-					amp_state["bank"] = 127
-					if ctrl_state["amp_bank"] == 0:
-						ctrl_state["amp_bank"] = 1
-						toggle_amp_bank = True
-				if toggle_amp_bank:
-					pedal_PC = get_pedal_PC("amp_bank")
-					logging.info("Sending PC {} to controller - {}".format(
-						pedal_PC, setting_name,
-					))
-					output_event(event.CtrlEvent(ctrl_port, 16, pedal_PC))
 
 def send_query_cmds(port):
 	for query_cmd in query_cmds:
 		cmd = format_sysex_cmd(query_cmd)
 		output_event(event.SysExEvent(port, cmd), sleep=0)
+
+
+def log_fn_call(outer_fn):
+	def fn(self, *args, **kwargs):
+		logging.info("ENTER {}", outer_fn.__name__)
+		logging.info("args: {}", args)
+		if kwargs:
+			logging.info("kwargs: {}", kwargs)
+		return outer_fn(self, *args, **kwargs)
+	return fn
+
+
+class Effect(object):
+	def __init__(self, name, on=False, has_color=True, color=0):
+		self.name = name
+		self.on = on
+		self.has_color = has_color
+		if self.has_color:
+			# effect colors: 0 == green, 1 == red, 2 == yellow
+			self.color = color
+		self.is_delay = False
+		if self.name.startswith("delay"):
+			self.is_delay = True
+			self.last_tap = 0 # timestamp (ms since epoch)
+			self.tap_opcode = 34 if name.endswith("2") else 2
+
+
+class Amp(object):
+	"""
+	Katana Amp.
+	"""
+	def __init__(self):
+		self.effects = dict()
+		for name in effect_names:
+			self.effects[name] = Effect(name)
+		for name in effect_wo_color_names:
+			self.effects[name] = Effect(name, has_color=False)
+
+		self.bank = 0  # toggles btn 0 and 127
+		self.patch = 0 # from 1 to 8
+		self.port = engine.out_ports()[0]
+
+	def run_cmd(self, cmd_name, key):
+		"""
+		Returns the SysExEvent that runs the specified command.
+		"""
+		sysex_cmd = sysex_cmds[cmd_name][key]
+		caller_name = inspect.stack()[1][3]
+		logging.debug("fn name: {}; ev.port: {}; {}", caller_name, port,
+					  sysex_cmd)
+		return event.SysExEvent(self.port, sysex_cmd)
+
+	def run_cmd_subs(self, cmd_name, *args):
+		"""
+		Returns the SysExEvent that runs the specified command, substituting
+		numeric values into the event as needed. This requires the values to
+		be encoded into hex, and for the SysEx checksum to be calculated.
+		"""
+		fmt_args = ['{:02x}'.format(arg) for arg in args]
+		sysex_cmd = sysex_cmds[cmd_name].format(*args)
+		sysex_cmd = format_sysex_cmd(sysex_cmd)
+		caller_name = inspect.stack()[1][3]
+		logging.debug("fn name: {}; ev.port: {}; {}", caller_name, port,
+					  sysex_cmd)
+		return event.SysExEvent(self.port, sysex_cmd)
+
+	def get_effect(self, name):
+		effect = self.effects.get(name)
+		if effect is None:
+			logging.error("Unknown effect: {}", name)
+		return effect
+
+	@log_fn_call
+	def toggle_effect(self, ev, name):
+		"""
+		Turns an effect on or off.
+		"""
+		effect = self.get_effect(name)
+		if effect is None:
+			return
+		# 0-63 == off, 64-127 == on
+		on = ev.value >= 64
+		if on == effect.on:
+			# already matches, do nothing
+			return
+		effect.on = on
+		return self.run_cmd(name+"_on", on)
+
+	@log_fn_call
+	def toggle_amp_bank(self, ev):
+		"""
+		Toggles btn the two banks of four amp presets.
+		"""
+		bank = ev.value
+		if bank == self.bank:
+			# already matches, do nothing
+			return
+		self.bank = bank
+		# adjust patch to match the new bank
+		self.patch = self.patch + 4 if bank else self.patch - 4
+		return self.run_cmd_subs("select_amp", patch)
+
+	@log_fn_call
+	def next_effect_color(self, ev, name):
+		"""
+		Switches the specified effect to the next color in the cycle.
+		"""
+		effect = self.get_effect(name)
+		if effect is None:
+			return
+		if not effect.has_color():
+			logging.error("Effect has no color: {}", name)
+			return
+		# increment color value, looping to 0 after 2
+		color = effect.color
+		effect.color = 0 if color >= 2 else color + 1
+		return self.run_cmd(name+"_color", color)
+
+	@log_fn_call
+	def delay_tap(self, ev, name):
+		"""
+		Set the delay time for the specified delay effect to the time elapsed
+		between two taps, up to an interval of 2 seconds.
+		"""
+		effect = self.get_effect(name)
+		if effect is None:
+			return
+		if not effect.is_delay:
+			logging.error("Effect is not a delay: {}", name)
+			return
+		# use whole milliseconds
+		now = int(time.time() * 1000)
+		# always store the new tap time
+		last_tap = self.last_tap
+		self.last_tap = now
+		interval = now - last_tap
+		# if first tap or > 2s since last tap, do nothing else
+		if interval > 2000:
+			return
+
+		# get 11 digit binary representation
+		interval_bin = "{:011b}".format(interval)
+		# first four digits make the first value, the rest the second
+		i_sub1 = int(interval_bin[:4], 2)
+		i_sub2 = int('0'+interval_bin[4:], 2)
+		return self.run_cmd_subs("delay_tap", effect.tap_opcode, i_sub1, i_sub2)
+
+	@log_fn_call
+	def select_preset(ev):
+		"""
+		We accept program change (PC) values 2-5. (The controller sends 1-4,
+		which the Katana recognizes, but since `data_offset` is 1 so we can
+		access the controller's listener channel 16 mididings sees them as 2-5.)
+		"""
+		patch = ev.program - 1
+		if not 1 <= patch <= 4:
+			logging.error("Invalid patch value: {}", patch)
+			return
+		if self.bank > 0:
+			# upper bank is 5-8
+			patch = patch + 4
+		self.patch = patch
+		return self.run_cmd_subs("select_amp", patch)
+
+amp = Amp()
+
+
+class Controller(object):
+	"""
+	FCB1010 MIDI controller w Wino2 firmware chipset.
+	"""
+	def __init__(self, bank=1, amp_bank=0, channel=16):
+		self.bank = bank
+		self.amp_bank = amp_bank
+		self.port = engine.out_ports()[1]
+		self.channel = channel
+
+	def update_amp_bank(self, ev):
+		self.amp_bank = ev.value
+
+	def toggle_amp_bank(self, amp_bank):
+		if self.amp_bank == amp_bank:
+			return
+		self.amp_bank = amp_bank
+		LED_map = ctrl_LED_maps[self.bank]
+		amp_bank_pedal = LED_map.get("amp_bank")
+		if amp_bank_pedal is None:
+			return
+		logging.info("Sending PC {} to controller - amp_bank", amp_bank_pedal)
+		output_event(event.ProgramEvent(self.port, self.channel, amp_bank_pedal))
+
+	def update_bank(self, ev):
+		self.bank = ev.value
+		# get amp state so we can update controller LEDs as needed
+		send_query_cmds(amp.port)
+
+	def toggle_effect(self, effect):
+		LED_map = ctrl_LED_maps[self.bank]
+		effect_pedal = LED_map.get(effect.name)
+		if effect_pedal is None:
+			return
+		logging.info("Sending PC {} to controller - {}", effect_pedal,
+					 effect.name)
+		output_event(event.ProgramEvent(self.port, self.channel, effect_pedal))
+
+	def set_preset(self, preset):
+		LED_map = ctrl_LED_MAPS[self.bank]
+		preset_pedal = LED_map.get("presets")
+		if preset_pedal is None:
+			return
+		preset_pedal = preset_pedal + preset - 1
+		logging.info("Sending PC {} to controller - preset {}", preset_pedal,
+					 preset)
+		output_event(event.ProgramEvent(self.port, self.channel, preset_pedal))
+
+ctrl = Controller()
+
+
+class QueryProcessor(object):
+	def increment_address(self, address):
+		"""
+		Increment the address after we process each data byte to get the
+		address of the next data byte.
+		"""
+		last_addr_byte = address[-2:]
+		if last_addr_byte != "7f":
+			# add 1 to the last byte
+			last_addr_byte = int(last_addr_byte,16)+1
+			address = "{}{:02x}".format(address[:-2], last_addr_byte)
+		else:
+			# rolls over, need to increment the upper address byte
+			last_addr_byte = "00"
+			upper_addr_byte = address[-5:-3]
+			upper_addr_byte = int(address[-5:-3],16)+1
+			address = "{}{:02x} {}".format(
+				address[:-5], upper_addr_byte, last_addr_byte)
+		return address
+
+	def process_query_result(self, ev):
+		"""
+		Parses and processes the SysEx events that the amp sends to get its
+		state.
+		"""
+		hex_bytes = ' '.join('{:02x}'.format(x) for x in ev.sysex)
+		logging.debug("SysEx event rec'd: {}", hex_bytes)
+
+		# extract the starting address and an unknown number of data bytes
+		start_address = hex_bytes[24:35]
+		data_bytes = hex_bytes[36:-6].split()
+
+		address = None
+		last_addr_byte = None
+
+		# iterate through the bytes and check each address
+		for data_byte in data_bytes:
+			if not address:
+				# initialize
+				address = start_address
+				last_addr_byte = address[-2:]
+			else:
+				address = increment_address
+
+			# see if this byte's address maps to a known setting
+			setting_name = addresses.get(address)
+			if not setting_name:
+				# no match, ignore it
+				continue
+
+			logging.info("Match: ()", setting_name)
+			data_byte = int(data_byte, 16)
+			effect_name, action = setting_name.rsplit("_", 1)
+			effect = amp.get_effect(effect_name)
+			if action == "color":
+				# controller doesn't support colors so we just update state
+				effect.color = data_byte
+				continue
+
+			if action == "on":
+				# python equates 0 & 1 with True & False
+				if effect.on == data_byte:
+					continue
+				effect.on = bool(data_byte)
+				ctrl.toggle_effect(effect)
+				continue
+
+			if setting_name == "patch_selected":
+				patch = int(data_bytes[-1], 16)
+				if amp.patch == patch:
+					continue
+				logging.info("patch: {}".format(patch))
+				amp_bank_of_patch = int(patch > 4)
+				# `ctrl.toggle_amp_bank` checks to see if they already match
+				ctrl.toggle_amp_bank(amp_bank_of_patch)
+				ctrl_preset = patch - 4	if amp_bank_of_patch else patch
+				ctrl.set_preset(ctrl_preset)
+
 
 def init():
 	"""
@@ -493,31 +522,33 @@ run(
 	# CC messages for various toggles, option cycling, and delay taps
 	[
 		Filter(CTRL) >> CtrlSplit({
-			16: Process(toggle_effect, "boost_on"),
-			17: Process(toggle_effect, "mod_on"),
-			18: Process(toggle_effect, "fx_on"),
-			19: Process(toggle_effect, "delay_on"),
-			20: Process(toggle_effect, "reverb_on"),
-			21: Process(toggle_effect, "delay2_on"),
-			22: Process(toggle_effect, "pedal_fx_on"),
-			23: Process(toggle_amp_bank),
+			16: Process(amp.toggle_effect, "boost"),
+			17: Process(amp.toggle_effect, "mod"),
+			18: Process(amp.toggle_effect, "fx"),
+			19: Process(amp.toggle_effect, "delay"),
+			20: Process(amp.toggle_effect, "reverb"),
+			21: Process(amp.toggle_effect, "delay2"),
+			22: Process(amp.toggle_effect, "pedal_fx"),
+			23: Process(amp.toggle_amp_bank),
 
-			96: CtrlValueFilter(127) >> Process(next_color, "boost_color"),
-			97: CtrlValueFilter(127) >> Process(next_color, "mod_color"),
-			98: CtrlValueFilter(127) >> Process(next_color, "fx_color"),
-			99: CtrlValueFilter(127) >> Process(delay_tap, "delay1_tap"),
-			100: CtrlValueFilter(127) >> Process(next_color, "reverb_color"),
-			101: CtrlValueFilter(127) >> Process(delay_tap, "delay2_tap"),
+			96: CtrlValueFilter(127) >> Process(amp.next_effect_color, "boost"),
+			97: CtrlValueFilter(127) >> Process(amp.next_effect_color, "mod"),
+			98: CtrlValueFilter(127) >> Process(amp.next_effect_color, "fx"),
+			99: CtrlValueFilter(127) >> Process(amp.next_effect_color,
+												 "reverb"),
+			100: CtrlValueFilter(127) >> Process(amp.delay_tap, "delay1"),
+			101: CtrlValueFilter(127) >> Process(amp.delay_tap, "delay2"),
 
-			102: Process(toggle_effect, "solo_on"),
+			102: Process(amp.toggle_effect, "solo"),
 
-			103: CtrlValueFilter(127) >> Process(next_color, "global_eq_color"),
+			103: CtrlValueFilter(127) >> Process(amp.next_effect_color,
+												 "global_eq"),
 
-			125: Process(update_ctrl_bank_toggle),
-			126: Process(update_ctrl_bank),
+			125: Process(ctrl.update_amp_bank),
+			126: Process(ctrl.update_bank),
 			None: Pass(),
 			}),
-		ProgramFilter([2, 3, 4, 5]) >> Process(select_amp),
+		ProgramFilter([2, 3, 4, 5]) >> Process(amp.select_preset),
 		# SysEx messages are query results back from the amp
 		SysExFilter(manufacturer=0x41) >> Call(process_query_result),
 		SysExFilter("\xf0\x7e") >> Call(process_query_result),
