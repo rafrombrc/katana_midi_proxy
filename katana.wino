@@ -1,0 +1,97 @@
+PRESETS =
+{
+   Preset1/Preset5
+   Preset2/Preset6
+   Preset3/Preset7
+   Preset4/Preset8
+}
+
+EFFECTS =
+{
+   Boost
+   Mod
+   Fx
+   Delay
+   Reverb
+   Delay2
+   Pedal
+   BankToggle
+}
+
+TRIGGERS =
+{
+   SwitchBoost
+   SwitchMod
+   SwitchFx
+   SwitchReverb
+   DelayTap
+   Delay2Tap
+}
+
+SWEEPS =
+{
+	Volume
+   WahPedal
+}
+
+BANKS =
+{
+   Presets  : Boost       | Mod       | Fx       | Delay    | Reverb       | Preset1/Preset5 | Preset2/Preset6 | Preset3/Preset7 | Preset4/Preset8 | BankToggle
+   Effects  : Boost       | Mod       | Fx       | Delay    | Reverb       | Delay2          | Pedal           |                 |                 |
+   Switches : SwitchBoost | SwitchMod | SwitchFx | DelayTap | SwitchReverb | Delay2Tap       |                 |                 |                 |
+}
+
+REMOTE_CONTROL_CHANNEL = 16
+CHANNEL Katana = 1
+
+INIT_FCB =
+{
+   Pedal 1 = Volume
+   Pedal 2 = WahPedal
+}
+
+INIT_BANK Presets =
+{
+   if (EFFECT_ON BankToggle) {
+	   SendMidi Katana CtrlChange 125 1
+   } else {
+      SendMidi Katana CtrlChange 125 0
+   }
+   SendMidi Katana CtrlChange 126 1
+}
+INIT_BANK Effects  = SendMidi Katana CtrlChange 126 2
+INIT_BANK Switches = SendMidi Katana CtrlChange 126 3
+
+PRESET Preset1/Preset5 = SendMidi Katana ProgChange 1
+PRESET Preset2/Preset6 = SendMidi Katana ProgChange 2
+PRESET Preset3/Preset7 = SendMidi Katana ProgChange 3
+PRESET Preset4/Preset8 = SendMidi Katana ProgChange 4
+EFFECT_ON BankToggle = SendMidi Katana CtrlChange 23 127
+EFFECT_OFF BankToggle = SendMidi Katana CtrlChange 23 0
+
+EFFECT_ON Boost = SendMidi Katana CtrlChange 16 127
+EFFECT_OFF Boost = SendMidi Katana CtrlChange 16 0
+EFFECT_ON Mod = SendMidi Katana CtrlChange 17 127
+EFFECT_OFF Mod = SendMidi Katana CtrlChange 17 0
+EFFECT_ON Fx = SendMidi Katana CtrlChange 18 127
+EFFECT_OFF Fx = SendMidi Katana CtrlChange 18 0
+EFFECT_ON Delay = SendMidi Katana CtrlChange 19 127
+EFFECT_OFF Delay = SendMidi Katana CtrlChange 19 0
+EFFECT_ON Reverb = SendMidi Katana CtrlChange 20 127
+EFFECT_OFF Reverb = SendMidi Katana CtrlChange 20 0
+
+EFFECT_ON Delay2 = SendMidi Katana CtrlChange 21 127
+EFFECT_OFF Delay2 = SendMidi Katana CtrlChange 21 0
+EFFECT_ON Pedal  = SendMidi Katana CtrlChange 22 127
+EFFECT_OFF Pedal = SendMidi Katana CtrlChange 22 0
+
+TRIGGER_CLICK DelayTap = SendMidi Katana CtrlChange 100 127
+TRIGGER_CLICK Delay2Tap = SendMidi Katana CtrlChange 101 127
+
+TRIGGER_CLICK SwitchBoost = SendMidi Katana CtrlChange 96 127
+TRIGGER_CLICK SwitchMod  = SendMidi Katana CtrlChange 97 127
+TRIGGER_CLICK SwitchFx  = SendMidi Katana CtrlChange 98 127
+TRIGGER_CLICK SwitchReverb  = SendMidi Katana CtrlChange 99 127
+
+SWEEP Volume = SendMidi Katana CtrlChange 72 0-127 SlowRising
+SWEEP WahPedal = SendMidi Katana CtrlChange 73 0-127
