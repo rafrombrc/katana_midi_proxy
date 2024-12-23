@@ -1,0 +1,3 @@
+SUBSYSTEM=="sound", ENV{ID_MODEL}=="KATANA", ACTION=="add", RUN+="/usr/bin/systemctl start katana-proxy.service"
+SUBSYSTEM=="sound", ENV{ID_MODEL}=="KATANA", ACTION=="remove", RUN+="/usr/bin/systemctl stop katana-proxy.service"
+
