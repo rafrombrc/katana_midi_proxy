@@ -159,20 +159,20 @@ ctrl_state_keys = {
 # corresponding button
 ctrl_LED_maps = {
 	1: {
-		"boost":		   1,
-		"mod":		       2,
-		"fx":    		   3,
-		"delay":		   4,
-		"reverb":   	   5,
+		"boost":           1,
+		"mod":             2,
+		"fx":              3,
+		"delay":           4,
+		"reverb":          5,
 		"presets":         6, # presets start here
 		"amp_bank":        10,
 	},
 	2: {
-		"boost":		   1,
-		"mod":	    	   2,
-		"fx":		       3,
-		"delay":		   4,
-		"reverb":	       5,
+		"boost":           1,
+		"mod":             2,
+		"fx":              3,
+		"delay":           4,
+		"reverb":          5,
 		"delay2":          6,
 		"pedal_fx":        7,
 	},
