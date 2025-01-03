@@ -3,7 +3,7 @@ Description=Proxy to control a Boss Katana Mk2 Head with a Behringer FCB1010 run
 
 [Service]
 Type=exec
-ExecStart=/usr/bin/python ${PATH_TO_KATANA_MIDI_PROXY}/katana_midi_proxy.py
+ExecStart=/usr/bin/katana-midi-proxy
 
 [Install]
 WantedBy=multi-user.target

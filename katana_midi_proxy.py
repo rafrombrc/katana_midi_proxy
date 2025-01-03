@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """
 Mididings script that sits between a Behringer FCB1010 MIDI controller running
 Wino2 firmware and a Katana MkII Head amplifier. This allows much more complete
