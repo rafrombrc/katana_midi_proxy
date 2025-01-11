@@ -22,3 +22,5 @@ Some additional files have been included beyond the core mididings script:
 * The Wino2 configuration file that causes the FCB1010 to play well with the proxy.
 
 Some adjustments may be needed to match your system's paths or devices. For instance, since the FCB1010 doesn't have a USB connector, an adapter is needed; the provided midiminder rules are looking for a [Roland UM-ONE](https://www.roland.com/de/products/um-one_mk2/) device instead of the FCB1010 itself. Collectively, they can be installed on to a headless single board computer (SBC) such as a Le Potato or a Raspberry Pi to provide a compact, reliable way to travel with the setup. Ideally the SBC should be set up with a read-only filesystem so it can be safely powered off without needing a clean shutdown.
+
+Users of Arch-derived distributions might be interested in the [PKGBUILD](https://github.com/rafrombrc/PKGBUILDs/tree/main/katana-proxy-git) I put together to install the software and all of the config files using Arch's packaging system. 
